@@ -1,0 +1,22 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+transformers = "*"
+openai = "*"
+retry = "*"
+pandas = "*"
+scipy = "*"
+tenacity = "*"
+datasets = "*"
+torch = "*"
+scikit-learn = "*"
+seaborn = "*"
+
+[dev-packages]
+ipykernel = "*"
+
+[requires]
+python_version = ">=3.9"

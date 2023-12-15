@@ -1,0 +1,15 @@
+[tool.poetry]
+name = "comparing-measures-of-llm-truthfulness"
+version = "0.1.0"
+description = ""
+authors = ["Felix Hofstätter <felixahofstaetter@gmail.com>"]
+readme = "README.md"
+packages = [{include = "comparing_measures_of_llm_truthfulness"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
