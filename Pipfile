@@ -14,9 +14,13 @@ datasets = "*"
 torch = "*"
 scikit-learn = "*"
 seaborn = "*"
+sentencepiece = "*"
+protobuf = "*"
+accelerate = "*"
+bitsandbytes = "*"
 
 [dev-packages]
 ipykernel = "*"
 
 [requires]
-python_version = ">=3.9"
+python_version = "3.9"
