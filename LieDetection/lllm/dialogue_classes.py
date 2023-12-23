@@ -336,6 +336,7 @@ class Dialogue:
 
         self.investigator.set_question(question)
 
+        self.suspect.model_kwargs["type"] = "follow_up"
         if set_answer is not None:
             suspect_answer = [set_answer for _ in range(self.n_parallel)]
             logprobs = None

@@ -5,18 +5,34 @@ llama_endpoint_exposed = False
 llama_endpoint = None
 
 
+def get_tokens_as_tuple(tokenizer, word):
+    tokens = tuple(tokenizer([word], add_special_tokens=False).input_ids[0])
+    return tuple([tokens[0]])
+
+
 class Llama2API:
-    def __init__(self, name="Llama-2-7b-chat-hf") -> None:
+    def __init__(self, name="Llama-2-7b-chat-hf", load_in_8bit=False, logit_bias=None) -> None:
         self.name = name
 
         self.tokenizer = LlamaTokenizer.from_pretrained(f"meta-llama/{name}")
-        self.model = LlamaForCausalLM.from_pretrained(f"meta-llama/{name}")
+        self.model = LlamaForCausalLM.from_pretrained(
+            f"meta-llama/{name}",
+            load_in_8bit=load_in_8bit    
+        )
+
+        if logit_bias is not None:
+            sequence_bias = {}
+            for word, bias in logit_bias.items():
+                sequence_bias[get_tokens_as_tuple(self.tokenizer, word)] = bias
+        else:
+            sequence_bias = None
 
         self.generator = pipeline(
             "text-generation",
             model=self.model,
             tokenizer=self.tokenizer,
-            device="cuda:0",
+            device="cuda:0" if not load_in_8bit else None,
+            sequence_bias=sequence_bias
         )
 
     def __call__(self, prompts, max_tokens=25, stop=None, return_logprobs=False, *args, **kwargs):
@@ -45,11 +61,20 @@ class Llama2API:
 
             return return_dict
 
+        if "sequence_bias" in kwargs:
+            if "type" in kwargs:
+                sequence_bias = kwargs["sequence_bias"][kwargs["type"]]
+            else:
+                sequence_bias = kwargs["sequence_bias"]
+        else:
+            sequence_bias = None
+        
         out = self.generator(
             prompts,
             max_new_tokens=max_tokens,
             return_full_text=False,
             eos_token_id=stop_token_id,
+            sequence_bias=sequence_bias
         )
 
         return {"choices": [{"text": o[0]["generated_text"].split(stop)[0]} for o in out]}
@@ -86,11 +111,23 @@ class Llama2API:
         return out, tokens
 
 
-def establish_llama2_endpoint(name="Llama-2-7b-chat-hf"):
+def establish_llama2_endpoint(name="Llama-2-7b-chat-hf", load_in_8bit=False, logit_bias=None):
     global llama_endpoint_exposed
     global llama_endpoint
 
     llama_endpoint_exposed = True
-    llama_endpoint = Llama2API(name)
+    llama_endpoint = Llama2API(name, load_in_8bit=load_in_8bit, logit_bias=logit_bias)
 
     return llama_endpoint
+
+
+def get_tokens_as_tuple(tokenizer, word):
+    tokens = tuple(tokenizer([word], add_special_tokens=False).input_ids[0])
+    return tuple([tokens[0]])
+
+def get_llama2_sequence_bias(bias):
+    assert llama_endpoint is not None, "Can only get sequence bias after initializing endpoint"
+    sequence_bias = {}
+    for word, bias in bias.items():
+        sequence_bias[get_tokens_as_tuple(llama_endpoint.tokenizer, word)] = bias
+    return sequence_bias

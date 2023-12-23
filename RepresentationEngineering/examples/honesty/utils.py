@@ -140,10 +140,14 @@ def plot_detection_results(input_ids, rep_reader_scores_dict, THRESHOLD, start_a
         x, y = x_start, y_start
         max_line_width = xlim
         started = False
-            
-        for word, score in zip(words[5:], rep_scores[5:]):
 
-            if start_answer_token in word:
+        if start_answer_token == "":
+            started = True
+             
+        # for word, score in zip(words[5:], rep_scores[5:]):
+        for word, score in zip(words, rep_scores):
+
+            if start_answer_token != "" and start_answer_token in word:
                 started = True
                 continue
             if not started:
@@ -177,12 +181,18 @@ def plot_detection_results(input_ids, rep_reader_scores_dict, THRESHOLD, start_a
         iter += 1
 
 
-def plot_lat_scans(input_ids, rep_reader_scores_dict, layer_slice):
+def plot_lat_scans(input_ids, rep_reader_scores_dict, layer_slice=None, layer_min=0, layer_max=-1):
     for rep, scores in rep_reader_scores_dict.items():
+        n_layers = len(scores[0])
+        if layer_max == -1:
+            layer_max = n_layers
 
-        start_tok = input_ids.index('▁A')
+        start_tok = 0 # input_ids.index('▁A')
         print(start_tok, np.array(scores).shape)
-        standardized_scores = np.array(scores)[start_tok:start_tok+40,layer_slice]
+        standardized_scores = np.array(scores)[
+            start_tok:start_tok+40, slice(-(layer_min + 1), -layer_max, -1)
+        ]
+        # standardized_scores = np.array(scores)[start_tok:start_tok+40,layer_slice]
         # print(standardized_scores.shape)
 
         bound = np.mean(standardized_scores) + np.std(standardized_scores)
@@ -209,7 +219,9 @@ def plot_lat_scans(input_ids, rep_reader_scores_dict, layer_slice):
         ax.set_xticklabels(np.arange(0, len(standardized_scores), 5)[1:])#, fontsize=20)
         ax.tick_params(axis='x', rotation=0)
 
-        ax.set_yticks(np.arange(0, len(standardized_scores[0]), 5)[1:])
-        ax.set_yticklabels(np.arange(20, len(standardized_scores[0])+20, 5)[::-1][1:])#, fontsize=20)
+        ax.set_yticks(np.arange(0, layer_max - layer_min, 5))
+        # ax.set_yticks(np.arange(0, len(standardized_scores[0]), 5)[1:])
+        ax.set_yticklabels(np.arange(layer_min, layer_max, 5))
+        # ax.set_yticklabels(np.arange(20, len(standardized_scores[0])+20, 5)[::-1][1:])#, fontsize=20)
         ax.set_title("LAT Neural Activity")#, fontsize=30)
     plt.show()
