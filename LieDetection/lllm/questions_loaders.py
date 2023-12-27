@@ -14,7 +14,7 @@ from scipy.special import logsumexp
 from tqdm import tqdm
 from pkg_resources import resource_filename
 
-from lllm import Suspect, DynamicInvestigator, Dialogue, StaticInvestigator
+from lllm import Suspect, InstructSuspect, DynamicInvestigator, Dialogue, StaticInvestigator
 from lllm.utils import completion_create_retry
 
 YES_TOKENS = set(["yes", "absolutely", "certainly", "undoubtedly"])
@@ -459,6 +459,7 @@ class QuestionsLoader(DataFrame, ABC):
                 "max_tokens": 256,
                 "top_p": 1,
             },
+            use_instruct_format=False,
     ):
         """This returns both P(yes) - P(no) and log(P(yes) / P(no))"""
         if "logprobs" in model_kwargs_suspect and model_kwargs_suspect["logprobs"] != 5:
@@ -494,7 +495,9 @@ class QuestionsLoader(DataFrame, ABC):
                     inv_questions = inv_questions[:number_probes]
 
         split_on = "*out loud*" if "*out loud*" in prompt else answer_prefix_suspect
-        suspect = Suspect(
+        
+        suspect_class = Suspect if not use_instruct_format else InstructSuspect
+        suspect = suspect_class(
             prompt,
             n_parallel=len(inv_questions),
             split_on=split_on,
@@ -651,6 +654,7 @@ class QuestionsLoader(DataFrame, ABC):
                 "max_tokens": 64,
                 "top_p": 1,
             },
+            use_instruct_format=False
     ):
         """
         Check if the model can answer the questions in the dataset. It will create a new column in the DataFrame
@@ -687,7 +691,7 @@ class QuestionsLoader(DataFrame, ABC):
 
         """
 
-        if "llama" in model or "alpaca" in model or "vicuna" in model:
+        if any([name in model for name in ["llama", "alpaca", "vicuna", "mistral"]]):
             endpoint, model_kwargs = self._llama_setup(model_kwargs)
 
         number_of_questions = len(self)
@@ -737,15 +741,23 @@ class QuestionsLoader(DataFrame, ABC):
                 if not np.isfinite(self[f"{model}_can_answer"][k]):
                     new_keys += [self["question"][k]]
                     expected_answers += [self["answer"][k]]
-                    prompts.append(
-                        [
-                            question_prefix.strip()
-                            + " "
-                            + self["question"][k].strip()
-                            + "\n"
-                            + answer_prefix.strip()
+                    if use_instruct_format:
+                        messages = [
+                            {"role": "user", "content": question_prefix.strip() + " " + self["question"][k].strip()},
                         ]
-                    )
+                        prompts.append(
+                            endpoint.tokenizer.apply_chat_template(messages, return_tensors="pt", tokenize=False)
+                        )
+                    else:
+                        prompts.append(
+                            [
+                                question_prefix.strip()
+                                + " "
+                                + self["question"][k].strip()
+                                + "\n"
+                                + answer_prefix.strip()
+                            ]
+                        )
 
             if len(prompts) > 0:
                 if "llama" in model or "alpaca" in model or "vicuna" in model:
@@ -789,6 +801,7 @@ class QuestionsLoader(DataFrame, ABC):
                 "max_tokens": 128,
                 "top_p": 1,
             },
+            use_instruct_format=False
     ):
         """
         Check if the model lies when answering the questions in the dataset. It will create a new column in the
@@ -836,7 +849,7 @@ class QuestionsLoader(DataFrame, ABC):
 
         """
 
-        if "llama" in model or "alpaca" in model or "vicuna" in model:
+        if any([name in model for name in ["llama", "alpaca", "vicuna", "mistral"]]):
             endpoint, model_kwargs = self._llama_setup(model_kwargs)
 
         number_of_questions = len(self)
@@ -937,15 +950,23 @@ class QuestionsLoader(DataFrame, ABC):
                     ):
                         new_keys += [self["question"][k]]
                         expected_answers += [self["answer"][k]]
-                        prompts.append(
-                            self._create_prompt_lie(
-                                k,
-                                lie_instruction,
-                                question_prefix,
-                                answer_prefix,
-                                few_shot_prompt,
+                        if use_instruct_format:
+                            messages = [
+                                {"role": "user", "content": lie_instruction + "\n\n" + question_prefix.strip() + " " + self["question"][k].strip()},
+                            ]
+                            prompts.append(
+                                endpoint.tokenizer.apply_chat_template(messages, return_tensors="pt", tokenize=False)
                             )
-                        )
+                        else:
+                            prompts.append(
+                                self._create_prompt_lie(
+                                    k,
+                                    lie_instruction,
+                                    question_prefix,
+                                    answer_prefix,
+                                    few_shot_prompt,
+                                )
+                            )
 
                 if len(prompts) > 0:
                     # time the api
@@ -994,20 +1015,32 @@ class QuestionsLoader(DataFrame, ABC):
                                     batch_size = max_batch_size
                                 else:
                                     batch_size = n_test_questions_to_try - l
-                                prompts_2 = [
-                                    prompts[k]
-                                    + " "
-                                    + model_answer
-                                    + "\n"
-                                    + question_prefix.strip()
-                                    + " "
-                                    + test_question[0]
-                                    + "\n"
-                                    + answer_prefix.strip()
-                                    for test_question in test_questions[
-                                                         l: l + batch_size
-                                                         ]
-                                ]
+                                if use_instruct_format:
+                                    prompts_2 = []
+                                    for test_question in test_questions[l: l + batch_size]:
+                                        messages = [
+                                            {"role": "user", "content": lie_instruction + "\n\n" + question_prefix.strip() + " " + self["question"][k].strip()},
+                                            {"role": "assistant", "content": model_answer},
+                                            {"role": "user", "content": test_question[0]}
+                                        ]
+                                        prompts_2.append(
+                                            endpoint.tokenizer.apply_chat_template(messages, return_tensors="pt", tokenize=False)
+                                        )
+                                else:
+                                    prompts_2 = [
+                                        prompts[k]
+                                        + " "
+                                        + model_answer
+                                        + "\n"
+                                        + question_prefix.strip()
+                                        + " "
+                                        + test_question[0]
+                                        + "\n"
+                                        + answer_prefix.strip()
+                                        for test_question in test_questions[
+                                                            l: l + batch_size
+                                                            ]
+                                    ]
                                 expected_answers_2 = [
                                     test_question[1]
                                     for test_question in test_questions[
@@ -1016,7 +1049,7 @@ class QuestionsLoader(DataFrame, ABC):
                                 ]
 
                                 start_api = time()
-                                if "llama" in model or "alpaca" in model or "vicuna" in model:
+                                if any([name in model for name in ["llama", "alpaca", "vicuna", "mistral"]]):
                                     model_kwargs["type"] = "follow_up"
                                     response_2 = endpoint(prompts_2, **model_kwargs)
                                 else:
@@ -1550,6 +1583,7 @@ class QuestionsLoader(DataFrame, ABC):
                 "top_p": 1,
                 "stop": ["\n", "END"],
             },
+            use_instruct_format=False
     ):
         """
         For each question, prompts the suspect to answer and then asks a fixed set of follow_up questions, recording
@@ -1757,6 +1791,7 @@ class QuestionsLoader(DataFrame, ABC):
                 question_prefix_suspect=question_prefix_suspect,
                 answer_prefix_suspect=answer_prefix_suspect,
                 model_kwargs_suspect=model_kwargs_suspect,
+                use_instruct_format=use_instruct_format,
             )
 
             # if the model did not lie, the transcript would be empty:
@@ -1808,6 +1843,7 @@ class QuestionsLoader(DataFrame, ABC):
                 question_prefix_suspect=question_prefix_suspect,
                 answer_prefix_suspect=answer_prefix_suspect,
                 model_kwargs_suspect=model_kwargs_suspect,
+                use_instruct_format=use_instruct_format
             )
 
             # if the model lied, the transcript would be empty:

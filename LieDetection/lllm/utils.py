@@ -36,7 +36,7 @@ def delayed_completion_with_backoff(delay_in_seconds: float = 1, **kwargs):
 def completion_create_retry(*args, sleep_time=5, **kwargs):
     """A wrapper around openai.Completion.create that retries the request if it fails for any reason."""
 
-    if 'llama' in kwargs['model'] or 'vicuna' in kwargs['model'] or 'alpaca' in kwargs['model']:
+    if any([name in kwargs['model'] for name in ["llama", "alpaca", "vicuna", "mistral"]]):
         if type(kwargs['prompt'][0]) == list:
             prompts = [prompt[0] for prompt in kwargs['prompt']]
         else:

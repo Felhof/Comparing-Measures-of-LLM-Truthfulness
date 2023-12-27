@@ -1,3 +1,4 @@
+from abc import ABC
 import logging
 
 import openai
@@ -47,7 +48,7 @@ class LanguageModelAgent:
 
         for i in range(n_batches):
             batch = prompts[i * max_batch_size: (i + 1) * max_batch_size]
-            if 'llama' in self.model or 'alpaca' in self.model or 'vicuna' in self.model:
+            if any([name in self.model for name in ["llama", "alpaca", "vicuna", "mistral"]]):
                 kwargs = self.model_kwargs.copy()
                 kwargs.pop('endpoint')
                 response = self.model_kwargs['endpoint'](batch, return_logprobs=return_logprobs, **kwargs)
@@ -167,7 +168,7 @@ class Suspect(LanguageModelAgent):
         if type(self.split_on) == list:
             assert len(self.split_on) == n_parallel
 
-    def get_response(self, input, return_logprobs=False):
+    def get_response(self, input, return_logprobs=False, *args, **kwargs):
 
         return self._get_response(input, prefix=self.prefix, suffix=self.suffix, return_logprobs=return_logprobs)
 
@@ -177,6 +178,83 @@ class Suspect(LanguageModelAgent):
         self.update_memory(response, prefix=" ")
 
         return response, None
+    
+
+class InstructSuspect(Suspect):
+    def _update_memory_with_single_question(self, inputs, prefix=""):
+        new_memory = []
+        for prompt, input in zip(self.memory, inputs):
+            messages = [
+                {"role": "user", "content": f"{prompt}{prefix}{input.strip()}"},
+            ]
+            new_memory.append(
+                self.model_kwargs["endpoint"].tokenizer.apply_chat_template(messages, return_tensors="pt", tokenize=False)
+            )
+        self.memory = new_memory
+        return
+    
+    def _update_memory_with_follow_up_question(self, follow_up_questions):
+        new_memory = []
+        for dialogue, follow_up_question in zip(self.memory, follow_up_questions):
+            messages = [
+                {"role": "user", "content": follow_up_question.strip()},
+            ]
+            question_in_template = self.model_kwargs["endpoint"].tokenizer.apply_chat_template(messages, return_tensors="pt", tokenize=False)
+            new_memory.append(
+                dialogue + "\n" + question_in_template
+            )
+            
+        self.memory = new_memory
+        return
+    
+    def _update_memory_with_response(self, responses):
+        new_memory = []
+        for dialogue, response in zip(self.memory, responses):
+            messages = [
+                {"role": "assistant", "content": response.strip()},
+            ]
+            response_in_template = self.model_kwargs["endpoint"].tokenizer.apply_chat_template(messages, return_tensors="pt", tokenize=False)
+            new_memory.append(
+                dialogue + "\n" + response_in_template
+            )
+            
+        self.memory = new_memory
+        return
+    
+    
+    def get_response(self, input, return_logprobs=False, input_type=None):        
+        assert input_type in ["single question", "follow up"]
+
+        if input_type == "single question":
+            self._update_memory_with_single_question(input, prefix=prefix)
+        else:
+            self._update_memory_with_follow_up_question(input)
+
+        prompts = self.memory
+
+        response = self.make_API_call(prompts, return_logprobs)
+        clean_response = [choice["text"].strip() for choice in response["choices"]]
+
+        self._update_memory_with_response(clean_response)
+
+        # self.memory = [choice.text.strip() for choice in response.choices]
+
+        if type(self.split_on) == list:
+            split_on = self.split_on
+        else:
+            split_on = [self.split_on] * len(clean_response)
+
+        out = [
+            conv.split(split)[-1] if (split in conv) else conv
+            for conv, split in zip(clean_response, split_on)
+        ]
+
+        if return_logprobs:
+            logprobs = self.extract_logprobs(response)
+        else:
+            logprobs = None
+
+        return out, logprobs        
 
 
 class Investigator:
@@ -336,14 +414,13 @@ class Dialogue:
 
         self.investigator.set_question(question)
 
-        self.suspect.model_kwargs["type"] = "follow_up"
         if set_answer is not None:
             suspect_answer = [set_answer for _ in range(self.n_parallel)]
             logprobs = None
             if not continue_dialogue:
                 suspect_answer, logprobs = self.suspect.set_response(question, suspect_answer)
         else:
-            suspect_answer, logprobs = self.suspect.get_response(question)
+            suspect_answer, logprobs = self.suspect.get_response(question, input_type="single question")
 
         self.update_memory(self.transcript, suspect_answer)
         self.update_memory(self.logprobs, logprobs)
@@ -365,12 +442,13 @@ class Dialogue:
         else:
             expected_dialogue = [None for _ in range(self.n_parallel)]
 
+        self.suspect.model_kwargs["type"] = "follow_up"
         for _ in range(self.max_interactions):
             investigator_response, _ = self.investigator.get_response(suspect_answer)
 
             self.update_memory(self.transcript, investigator_response)
 
-            suspect_answer, logprobs = self.suspect.get_response(investigator_response, return_logprobs=return_logprobs)
+            suspect_answer, logprobs = self.suspect.get_response(investigator_response, return_logprobs=return_logprobs, input_type="follow up")
             self.update_memory(self.transcript, suspect_answer)
             self.update_memory(self.logprobs, logprobs)
         self.investigator.update_memory(suspect_answer, prefix=self.investigator.prefix)
@@ -395,7 +473,7 @@ class Dialogue:
 
         # self.investigator.set_question(question)
 
-        suspect_answer, logprobs = self.suspect.get_response(question)
+        suspect_answer, logprobs = self.suspect.get_response(question, input_type="single question")
 
         return suspect_answer, logprobs
 

@@ -129,10 +129,6 @@ def establish_endpoint(name="Llama-2-7b-chat-hf", load_in_8bit=False, logit_bias
     return endpoint
 
 
-def get_tokens_as_tuple(tokenizer, word):
-    tokens = tuple(tokenizer([word], add_special_tokens=False).input_ids[0])
-    return tuple([tokens[0]])
-
 def get_llm_sequence_bias(bias):
     assert endpoint is not None, "Can only get sequence bias after initializing endpoint"
     sequence_bias = {}
