@@ -182,6 +182,7 @@ class Suspect(LanguageModelAgent):
 
 class InstructSuspect(Suspect):
     def _update_memory_with_single_question(self, inputs, prefix=""):
+        prefix = prefix.replace("\n", "")
         new_memory = []
         for prompt, input in zip(self.memory, inputs):
             messages = [
@@ -201,7 +202,7 @@ class InstructSuspect(Suspect):
             ]
             question_in_template = self.model_kwargs["endpoint"].tokenizer.apply_chat_template(messages, return_tensors="pt", tokenize=False)
             new_memory.append(
-                dialogue + "\n" + question_in_template
+                dialogue.strip() + question_in_template.replace("<s>","")
             )
             
         self.memory = new_memory
@@ -211,9 +212,11 @@ class InstructSuspect(Suspect):
         new_memory = []
         for dialogue, response in zip(self.memory, responses):
             messages = [
+                {"role": "user", "content": ""},
                 {"role": "assistant", "content": response.strip()},
             ]
             response_in_template = self.model_kwargs["endpoint"].tokenizer.apply_chat_template(messages, return_tensors="pt", tokenize=False)
+            response_in_template = response_in_template.split("[/INST]")[1]
             new_memory.append(
                 dialogue + "\n" + response_in_template
             )
@@ -226,7 +229,7 @@ class InstructSuspect(Suspect):
         assert input_type in ["single question", "follow up"]
 
         if input_type == "single question":
-            self._update_memory_with_single_question(input, prefix=prefix)
+            self._update_memory_with_single_question(input, prefix=self.prefix)
         else:
             self._update_memory_with_follow_up_question(input)
 

@@ -1,5 +1,5 @@
 import torch
-from transformers import AutoTokenizer, AutoModelForCaulalLM, pipeline
+from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 
 endpoint_exposed = False
 endpoint = None
@@ -18,14 +18,17 @@ def model_to_repo_owner(name):
 
 
 class LLMAPI:
-    def __init__(self, name="Llama-2-7b-chat-hf", load_in_8bit=False, logit_bias=None) -> None:
+    def __init__(self, name="Llama-2-7b-chat-hf", logit_bias=None, **model_kwargs) -> None:
         self.name = name
 
         repo_owner = model_to_repo_owner(name)
-        self.tokenizer = AutoTokenizer.from_pretrained(f"{repo_owner}/{name}")
-        self.model = AutoModelForCaulalLM.from_pretrained(
+        self.tokenizer = AutoTokenizer.from_pretrained(f"{repo_owner}/{name}", padding_side="left")
+        if "mistral" in name.lower():
+            print("Setting Mistral pad token id")
+            self.tokenizer.pad_token_id = 0
+        self.model = AutoModelForCausalLM.from_pretrained(
             f"{repo_owner}/{name}",
-            load_in_8bit=load_in_8bit    
+            **model_kwargs    
         )
 
         if logit_bias is not None:
@@ -39,14 +42,14 @@ class LLMAPI:
             "text-generation",
             model=self.model,
             tokenizer=self.tokenizer,
-            device="cuda:0" if not load_in_8bit else None,
-            sequence_bias=sequence_bias
+            sequence_bias=sequence_bias,
+            **model_kwargs
         )
 
     def __call__(self, prompts, max_tokens=25, stop=None, return_logprobs=False, *args, **kwargs):
 
         if stop is not None:
-            stop_token_id = endpoint.tokenizer.convert_tokens_to_ids(
+            stop_token_id = self.tokenizer.convert_tokens_to_ids(
                 [stop]
             )
         else:
@@ -119,12 +122,12 @@ class LLMAPI:
         return out, tokens
     
 
-def establish_endpoint(name="Llama-2-7b-chat-hf", load_in_8bit=False, logit_bias=None):
+def establish_endpoint(name="Llama-2-7b-chat-hf", logit_bias=None, **model_kwargs):
     global endpoint_exposed
     global endpoint
 
     endpoint_exposed = True
-    endpoint = LLMAPI(name, load_in_8bit=load_in_8bit, logit_bias=logit_bias)
+    endpoint = LLMAPI(name, logit_bias=logit_bias, **model_kwargs)
 
     return endpoint
 

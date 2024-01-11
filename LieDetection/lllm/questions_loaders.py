@@ -745,9 +745,9 @@ class QuestionsLoader(DataFrame, ABC):
                         messages = [
                             {"role": "user", "content": question_prefix.strip() + " " + self["question"][k].strip()},
                         ]
-                        prompts.append(
+                        prompts.append([
                             endpoint.tokenizer.apply_chat_template(messages, return_tensors="pt", tokenize=False)
-                        )
+                        ])
                     else:
                         prompts.append(
                             [
@@ -760,7 +760,7 @@ class QuestionsLoader(DataFrame, ABC):
                         )
 
             if len(prompts) > 0:
-                if "llama" in model or "alpaca" in model or "vicuna" in model:
+                if any([name in model for name in ["llama", "alpaca", "vicuna", "mistral"]]):
                     prompts = [prompt[0] for prompt in prompts]
                     response = endpoint(prompts, **model_kwargs)
                 else:
@@ -971,7 +971,7 @@ class QuestionsLoader(DataFrame, ABC):
                 if len(prompts) > 0:
                     # time the api
                     start_api = time()
-                    if "llama" in model or "alpaca" in model or "vicuna" in model:
+                    if any([name in model for name in ["llama", "alpaca", "vicuna", "mistral"]]):
                         model_kwargs["type"] = "main"
                         response = endpoint(prompts, **model_kwargs)
                     else:
@@ -1019,7 +1019,7 @@ class QuestionsLoader(DataFrame, ABC):
                                     prompts_2 = []
                                     for test_question in test_questions[l: l + batch_size]:
                                         messages = [
-                                            {"role": "user", "content": lie_instruction + "\n\n" + question_prefix.strip() + " " + self["question"][k].strip()},
+                                            {"role": "user", "content": lie_instruction + "\n\n" + question_prefix.strip() + " " + new_keys[k].strip()},
                                             {"role": "assistant", "content": model_answer},
                                             {"role": "user", "content": test_question[0]}
                                         ]
